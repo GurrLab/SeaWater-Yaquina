@@ -1,0 +1,217 @@
+---
+title: "1_BuildMaster.Rmd"
+author: "Samuel Gurr"
+date: "2026-03-12"
+output: html_document
+---
+
+
+## Build master file
+
+**Objective**: Merge three datasets that cover the Yaquina dataset from the 1980s to 2025
+data are in different formats as .tsc, zip folder, and .xlsx
+
+#### load required pacakges
+
+* note: use install.packages("") if you do not have these downloaded!
+
+```{r, include=FALSE}
+library(lubridate)
+library(dplyr)
+library(readxl)
+library(data.table)
+```
+
+#### set your working directory 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# SET WORKING DIRECTORY 
+knitr::opts_knit$set(root.dir = "C:/Users/gurrs/Documents/6_Github_repositories/GurrLab/SeaWater-Yaquina/raw") # Sam's work computer
+```
+
+
+### Import data 
+
+  * data being the outputs from the acidifcation, hypoxia, low salinity, high temperature events R code
+
+```{r import data}
+
+# Yaquina data from 2007-2013
+Yaquina_2007_2013 <- fread("LOBO0019-20251208164806.tsv", header = TRUE)
+
+# Yaquina data from 1988 - 2004
+file_connection   <- unz("OSU_Seawater_88to04.zip", "OSU_Seawater_88to04.csv")
+Yaquina_1998_2004 <- read.csv(file_connection)
+
+# Yaquina Sonde from 2009 - 2025
+Yaquina_2009_2025 <- read_excel("Mochon Collura-YSI Yaquina 2009_2025-dataset final.xlsx", sheet = 3)
+
+```
+
+
+## Edit dataframes in prep to merge
+
+* before we merge the three datasets, we first need to do the following: 
+  
+  * run some QC, truncate outliers and output them
+  
+  * rename columns, assign NAs if needed 
+
+
+#### Edit Yaquina_1998_2004
+```{r Edit Yaquina_1998_2004, include=FALSE}
+
+# Pad with leading zeros to a total width of 6
+# why? the format for the date does not incude '00' for year 2000 nor '0' to start 2001-2004
+Yaquina_1998_2004$Date_yymmdd <- sprintf("%06d",Yaquina_1998_2004$Date_yymmdd)
+Yaquina_1998_2004$Time_hhmm   <- sprintf("%04d",Yaquina_1998_2004$Time_hhmm)
+
+# format the date as yyyymmdd
+Yaquina_1998_2004$Date_yyyymmdd      <- format(as.Date(as.character(Yaquina_1998_2004$Date_yymmdd), format = "%y%m%d"), "%Y%m%d")
+
+# format the date as yyyymmdd_hhmm
+Yaquina_1998_2004$Date_yyyymmdd_hhmm <- paste0(Yaquina_1998_2004$Date_yyyymmdd, "_", Yaquina_1998_2004$Time_hhmm)
+
+
+Yaquina_1998_2004_edit <- as.data.frame(Yaquina_1998_2004) %>% 
+                            # reformat date to GMT, and numeric
+                            mutate(Date_GMT = lubridate::ymd_hm(Yaquina_1998_2004$Date_yyyymmdd_hhmm, tz = "GMT"),
+                                   Date_NUM_FORMAT = (as.numeric(Date_GMT) / 86400 / 365) ) %>% # get a numeric version of time
+                            # convert units to universal format
+                            dplyr::mutate(Temperature_Kelvin = WaterTemp_YBay_C + 273.15, # from Celcius to Kelvin
+                                          Dissolved_oxygen_molm3 = NA, # from mg/L to mol per m⁻³
+                                          Dissolved_oxygen_mgL = NA,
+                                          pH = NA,
+                                          Total_chlorophyll_kgm3 = NA,
+                                          Total_chlorophyll_ugL = NA,
+                                          Turbidity = NA,
+                                          Depth_m = NA) %>% # from ug/L to kg m⁻³
+                            # rename columns 
+                            dplyr::rename(Temperature_Celcius = WaterTemp_YBay_C,
+                                          Salinity = Salinity_YBay_ppt) %>% 
+                            # select target columns
+                            dplyr::select(Date_GMT, 
+                                          Date_NUM_FORMAT, 
+                                          Temperature_Kelvin,
+                                          Temperature_Celcius,
+                                          pH,
+                                          Salinity,
+                                          Dissolved_oxygen_molm3,
+                                          Dissolved_oxygen_mgL,
+                                          Total_chlorophyll_kgm3,
+                                          Total_chlorophyll_ugL,
+                                          Turbidity,
+                                          Depth_m) %>% 
+                            # add column as the category for the dataset
+                            dplyr::mutate(dataset = 'Dataset1_1998_2004',
+                                          Location = 'Yaquina_Bay',
+                                          Latitude = NA,
+                                          Longitute = NA)
+```
+
+### Edit Yaquina_2007_2013
+```{r Edit Yaquina_2007_2013, include=FALSE}
+
+Yaquina_2007_2013_edit <- as.data.frame(Yaquina_2007_2013) %>% 
+                            # reformat date to GMT, and numeric
+                            mutate(Date_GMT = lubridate::as_datetime(`date [PST]`),
+                                   Date_NUM_FORMAT = (as.numeric(Date_GMT) / 86400 / 365) ) %>% # get a numeric version of time
+                            # convert units to universal format
+                            dplyr::mutate(Temperature_Kelvin = `temperature [C]` + 273.15, # from Celcius to Kelvin
+                                          Dissolved_oxygen_molm3 = `dissolved oxygen [ml/l]` * 0.03125, # from mg/L to mol per m⁻³
+                                          pH = NA,
+                                          Total_chlorophyll_kgm3 = NA,
+                                          Total_chlorophyll_ugL = NA,
+                                          Turbidity = NA,
+                                          Depth_m = NA) %>% # from ug/L to kg m⁻³
+                            # rename columns 
+                            dplyr::rename(Temperature_Celcius = `temperature [C]`,
+                                          Salinity = salinity,
+                                          Dissolved_oxygen_mgL = `dissolved oxygen [ml/l]`) %>% 
+                            # select target columns
+                            dplyr::select(Date_GMT, 
+                                          Date_NUM_FORMAT, 
+                                          Temperature_Kelvin,
+                                          Temperature_Celcius,
+                                          pH,
+                                          Salinity,
+                                          Dissolved_oxygen_molm3,
+                                          Dissolved_oxygen_mgL,
+                                          Total_chlorophyll_kgm3,
+                                          Total_chlorophyll_ugL,
+                                          Turbidity,
+                                          Depth_m) %>% 
+                            # add column as the category for the dataset
+                            dplyr::mutate(dataset = 'Dataset2_2007_2013',
+                                          Location = 'Yaquina_Bay',
+                                          Latitude = NA,
+                                          Longitute = NA)
+```
+
+#### Edit Yaquina_2009_2025
+```{r Edit Yaquina_2009_2025, include=FALSE}
+
+# flag label in the file suggests that "1" == reliabe,
+# isolating the values 2,3 and outputing them if future users want to view and QC
+Yaquina_2009_2025_flagged <- as.data.frame(Yaquina_2009_2025) %>% dplyr::filter(Flags > 1)
+
+
+Yaquina_2009_2025_edit <- as.data.frame(Yaquina_2009_2025) %>% 
+                            # flags == 1, Pass
+                            dplyr::filter(Flags == 1) %>%  
+                            # reformat date to GMT, and numeric
+                            mutate(Date_GMT = lubridate::as_datetime(Timestamp.GMT),
+                                   Date_NUM_FORMAT = (as.numeric(Date_GMT) / 86400 / 365) ) %>% # get a numeric version of time
+                            # convert units to universal format
+                            dplyr::mutate(Temperature_Kelvin = Temperature.C + 273.15, # from Celcius to Kelvin
+                                          Dissolved_oxygen_molm3 = ODO.mgL * 0.03125, # from mg/L to mol per m⁻³
+                                          Total_chlorophyll_kgm3 = Chlorophyll /(1000000)) %>% # from ug/L to kg m⁻³
+                            # rename columns 
+                            dplyr::rename(Temperature_Celcius = Temperature.C,
+                                          Depth_m = Depth.m,
+                                          Dissolved_oxygen_mgL = ODO.mgL,
+                                          Total_chlorophyll_ugL = Chlorophyll) %>% 
+                            # select target columns
+                            dplyr::select(Date_GMT, 
+                                          Date_NUM_FORMAT, 
+                                          Temperature_Kelvin,
+                                          Temperature_Celcius,
+                                          pH,
+                                          Salinity,
+                                          Dissolved_oxygen_molm3,
+                                          Dissolved_oxygen_mgL,
+                                          Total_chlorophyll_kgm3,
+                                          Total_chlorophyll_ugL,
+                                          Turbidity,
+                                          Depth_m) %>% 
+                            # add column as the category for the dataset
+                            dplyr::mutate(dataset = 'Dataset3_2009_2025',
+                                          Location = 'Yaquina_Bay',
+                                          Latitude = NA,
+                                          Longitute = NA)
+
+
+```
+
+
+
+## Merge 'Master' file
+
+```{r, include=FALSE}
+Master <- as.data.frame(
+                      rbind(Yaquina_1998_2004_edit,
+                            Yaquina_2007_2013_edit,
+                            Yaquina_2009_2025_edit)
+                      )
+
+View(Master)
+```
+
+## Output 'Master' file
+
+```{r, include=FALSE}
+
+readr::write_csv(Master, "../RAnalysis/Output/Compiled_master_file.csv.gz")
+```
+

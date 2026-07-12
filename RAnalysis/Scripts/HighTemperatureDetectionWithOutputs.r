@@ -1,0 +1,240 @@
+#This algorithm was developed by Ian P. Dwyer and Samuel J. Gurr
+#in January 2017 for the analysis of data produced by oxygen sensors
+#around Long Island, New York. Criteria below define the duration
+#and character of hypoxic events and offer a series of options for
+#analysis and reporting of these events.
+
+# Use this script for your field data? **Please cite to credit intellectual contributors and origin use**: 
+# Gurr, S. J., Dwyer, I. P., Goleski, J., Lima, F. P., Seabra, R., Gobler, C. J., & Volkenborn, N. (2021).
+# Acclimatization in the bay scallop Argopecten irradians along a eutrophication gradient: 
+# Insights from heartbeat rate measurements during a simulated hypoxic event. Marine and 
+# Freshwater Behaviour and Physiology, 54(1), 23-49.
+
+library(lubridate)
+library(dplyr)
+library(readxl) # use to read the raw EPA dataset (xlsx file)
+
+#User-defined variables:
+
+Thresholds<-c(16.01,17.01,18.01); #Choose any number of thresholds for hypoxia (Temperature>=Threshold)
+ThresholdLabels<-c("Sub-Optimal", "Moderate", "Severe"); #Choose labels for these thresholds
+#Length of the labels list must be the same as the list of thresolds, and must be in the same order. Format labels as "Label"
+
+MinEvent<-59.9; #defined in minutes, the minimum duration of hypoxia to be considered an event 
+#(slightly shorter than interval because exactly 1 hr events were being discarded for some reason.)
+Interval<-60; #defined in minutes, the maximum distance (<=) between two measured hypoxic points that are part of same event
+timeDigits<-5; #specifies the number of decimal places to which the time data are accurate.
+#For reference, 5 decimal places is a resolution of slightly smaller than seconds.
+
+#Define some desired outputs here as booleans. Don't worry about it for now.
+#Might exclude this entirely. Not sure.
+
+#USER SHOULD NOT TOUCH ANYTHING BELOW THIS LINE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+# CHANGES MADE September 26 2023 to cater script for LISS Sonde data - by Samuel Gurr
+# most changes pertain to the inconsistencies in date formatting between sensors 
+
+#Imports the data.
+#Note that the following functions expect the columns to be 
+#TIME, TIME_NUM_FORMAT, and Temperature in that order.
+getwd() # get your working directory
+setwd("C:/Users/gurrs/Documents/Github_repositories/GurrLab/SeaWater-Yaquina/raw")
+
+# read the 3rd sheet
+filename       <- "Yaquina_Bay.csv"
+raw_Yaquina    <- read_excel("Mochon Collura-YSI Yaquina 2009_2025-dataset final.xlsx", sheet = 3)
+data           <- as.data.frame(raw_Yaquina) %>% 
+                      dplyr::filter(Flags == 1) %>%  # flags == 1, Pass
+                      mutate(TIME = lubridate::as_datetime(Timestamp.GMT),
+                             TIME_NUM_FORMAT = (as.numeric(TIME) / 86400 / 365) ) %>% # get a numeric version of time
+                      dplyr::select(TIME, TIME_NUM_FORMAT, Temperature.C) %>%  # call the three column of interest
+                      dplyr::rename(Temperature  = Temperature.C) %>% 
+                      na.omit
+
+
+#Sorts the data by time in ascending order before anything else happens.
+data<-data[order(data[[2]]),];
+
+#Separates out the elements into their own variables for easy use.
+timeString<-as.character(data[[1]]);
+timeNum<-data[[2]];
+Temperature<-(data[[3]]);
+
+#Creates a character vector to store what will eventually be the report.
+dataReport<-character();
+
+#Creates variables(s) that will eventually be output to (a) file(s) (hopefully if I get this right).
+type<-character();
+startTime<-character();
+endTime<-character();
+duration<-numeric();
+eventTemperature<-numeric();
+startNum<-numeric();
+endNum<-numeric();
+
+avgAvgTemperature<-numeric();
+avgDur<-numeric();
+# every hour is 0.000115
+
+
+# 0.0001141553*24*365 -- 0.0001141553 == 1 hour to years
+#Defines the minimum event and maximum distance of measurements in terms of time code (new unit=days).
+minEventNum<-round(MinEvent/24/60/365,digits=timeDigits);#Rounded to the same level of precision as the time data
+intervalNum<-round(Interval/24/60/365,digits=timeDigits);#Rounded to the same level of precision as the time data
+
+#Here's where the analysis begins in earnest:
+#Defines and initializes variables to hold the starting and ending row numbers of each run detected
+runStart<-0;#must start at 0 in order to work.
+runEnd<-0;#must start at 0 in order to work.
+
+#Defines a vector for keeping track of the number of runs of each type.
+runCounts<-numeric();
+
+#Loop through for each threshold.
+for(j in 1:length(Thresholds)){
+  #Defines and initializes a variable for counting runs.
+  NumberOfRuns<-0;
+  #Defines and vector for keeping track of Temperatures.
+  AvgTemperatures<-numeric();
+  #defines a vector to keep track of durations
+  durs<-numeric();
+  
+  #The loop that iterates through each row of the data and finds runs:
+  for (i in 1:length(timeNum)){
+    #if we're not currently in a run...
+    if(runEnd==0){
+      #if we've found a starting point, set the start and end of the run to that time.
+      if(Temperature[i]>=Thresholds[j]){ # looking for temperature GREATER than assigned thresholds
+        runStart<-i;
+        runEnd<-i;
+      };
+    }#LINE TERMINATOR WILL MESS THIS UP
+    #if we're already in a run...
+    else{
+      #if we haven't exceeded the maximum allowable gap between high Temperature points...
+      if(round(timeNum[i]-timeNum[runEnd],digits=timeDigits)<=intervalNum){
+        #and we've just found another applicable point, reset the end point to this new point.
+        if(Temperature[i]>=Thresholds[j]){ 
+          runEnd<-i;
+        };
+        #If we hit the end of the file during a run that meets our criteria.
+        if(i==length(timeNum)&&(round(timeNum[runEnd]-timeNum[runStart],digits=timeDigits)>=minEventNum)){
+          #DO SHIT HERE FOR ANALYSIS
+          NumberOfRuns<-NumberOfRuns+1;
+          avgTemperature<-mean(Temperature[runStart:runEnd]);
+          avgTemperatureround<-round(avgTemperature,digits=2);
+          dataReport[length(dataReport)+1]<-(paste("Found",ThresholdLabels[j],"Event #",NumberOfRuns," Avg Temperature:",
+                                                   avgTemperatureround," Start/End:",timeString[runStart],"-",timeString[runEnd],"(Cut Off By End Of File)"));
+          #for the output reports
+          startTime[length(startTime)+1]<-timeString[runStart];#stores the start time
+          endTime[length(endTime)+1]<-NA;#stores the end time
+          startNum[length(startNum)+1]<-round(timeNum[runStart],digits=timeDigits);#stores the start num
+          endNum[length(endNum)+1]<-NA;#stores the end num
+          #Actually we don't want to update Temperature for incomplete events.
+          #AvgTemperatures[length(AvgTemperatures)+1]<-avgTemperature; #stores the avg Temperature for each event
+          duration[length(duration)+1]<-NA;
+          eventTemperature[length(eventTemperature)+1]<-NA;
+          type[length(type)+1]<-ThresholdLabels[j];
+          #Actually we don't want to update durations for averaging because this doesn't count
+          #durs[length(durs)+1]<-(timeNum[runEnd]-timeNum[runStart])*24*60; #stores event durations
+          
+          #set these back to 0 for the next file, or else shit will go badly if I try to automate.
+          runStart<-0;
+          runEnd<-0;
+        };
+      }#LINE TERMINANTOR WILL MESS THIS UP
+      #if we've exceeded the maximum allowable gap and not found an applicable point...
+      else{
+        #if the run we've found is at least the minimum length we've defined... 
+        if(round(timeNum[runEnd]-timeNum[runStart],digits=timeDigits)>=minEventNum){
+          #DO SHIT HERE FOR ANALYSIS
+          NumberOfRuns<-NumberOfRuns+1;
+          avgTemperature<-mean(Temperature[runStart:runEnd]);
+          avgTemperatureround<-round(avgTemperature,digits=2);
+          #Contingency for if run starts at beginning of file
+          if(runStart==1){dataReport[length(dataReport)+1]<-(
+            paste("Found",ThresholdLabels[j],"Event #",NumberOfRuns," Avg Temperature:",
+                  avgTemperatureround," Start/End:",timeString[runStart],"(Cut off by beginning of file)","-",timeString[runEnd]));
+          #for the output reports
+          startTime[length(startTime)+1]<-NA;#stores the start time
+          endTime[length(endTime)+1]<-timeString[runEnd];#stores the end time
+          startNum[length(startNum)+1]<-NA;#stores the start num
+          endNum[length(endNum)+1]<-round(timeNum[runEnd],digits=timeDigits);#stores the end num
+          #we don't want to store this in this case.
+          #AvgTemperatures[length(AvgTemperatures)+1]<-avgTemperature; #stores the avg Temperature for each event
+          duration[length(duration)+1]<-NA;
+          eventTemperature[length(eventTemperature)+1]<-NA;
+          type[length(type)+1]<-ThresholdLabels[j];
+          #we don't want to store this in this case.
+          #durs[length(durs)+1]<-(timeNum[runEnd]-timeNum[runStart])*24*60; #stores event durations
+          }
+          #Every other case
+          else{dataReport[length(dataReport)+1]<-(paste("Found",ThresholdLabels[j],"Event #",NumberOfRuns," Avg Temperature:",
+                                                        avgTemperatureround," Start/End:",timeString[runStart],"-",timeString[runEnd]));
+          #for the output reports
+          startTime[length(startTime)+1]<-timeString[runStart];#stores the start time
+          endTime[length(endTime)+1]<-timeString[runEnd];#stores the end time
+          startNum[length(startNum)+1]<-round(timeNum[runStart],digits=timeDigits);#stores the start num
+          endNum[length(endNum)+1]<-round(timeNum[runEnd],digits=timeDigits);#stores the end num
+          AvgTemperatures[length(AvgTemperatures)+1]<-avgTemperature; #stores the avg Temperature for each event
+          duration[length(duration)+1]<-(timeNum[runEnd]-timeNum[runStart])*24*60*365;
+          eventTemperature[length(eventTemperature)+1]<-avgTemperature;
+          type[length(type)+1]<-ThresholdLabels[j];
+          durs[length(durs)+1]<-(timeNum[runEnd]-timeNum[runStart])*24*60*365; #stores event durations
+          }
+          
+        };
+        #regardless of whether we ran analysis or not, set these varaibles to 0 so the loop
+        #knows we're not currently in a run anymore.
+        runStart<-0;
+        runEnd<-0;
+      };
+    };
+  };
+  runCounts[j]<-NumberOfRuns; #stores the total events for this threshold detected.
+  dataReport[length(dataReport)+1]<-"";#adds a blank line to the data file to separate blocks.
+  
+  avgAvgTemperature[j]<-mean(AvgTemperatures); #updates the average average Temperature for the second report file.
+  avgDur[j]=mean(durs);#updates the average average duration for the second report file.
+};
+
+
+
+#adds the summary lines to the data report.
+dataReport[length(dataReport)+1]<-"Events Detected:";
+for(k in 1:length(Thresholds)){
+  dataReport[length(dataReport)+1]<-paste(ThresholdLabels[k],"Events:",runCounts[k]);
+};
+
+#compiles the reports for saving
+report1<-data.frame(
+  type=type,
+  durationMinutes=duration,
+  startTime=startTime,
+  endTime=endTime,
+  startNum=startNum,
+  endNum=endNum,
+  eventTemperature=eventTemperature);
+
+report1$type<-as.character(report1$type);
+report1$startTime<-as.character(report1$startTime);
+report1$endTime<-as.character(report1$endTime);
+
+report2<-data.frame(
+  type=ThresholdLabels,
+  threshold=Thresholds,
+  numberFound=runCounts,
+  avgDurMinutes=avgDur,
+  avgAvgTemperature=avgAvgTemperature);
+
+report2$type<-as.character(report2$type);
+
+#saves out the report files.
+output1<-gsub(".csv","_TemperatureEvents.csv",filename);
+write.csv(report1, file=output1,row.names=FALSE);
+
+output2<-gsub(".csv","_TemperatureSummary.csv",filename);
+write.csv(report2, file=output2,row.names=FALSE);
+
+#prints the report.
+print(dataReport);

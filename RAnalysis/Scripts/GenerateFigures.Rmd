@@ -1,0 +1,182 @@
+---
+title: "GenerateFigures.Rmd"
+author: "Samuel Gurr"
+date: "2026-03-12"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# SET WORKING DIRECTORY 
+knitr::opts_knit$set(root.dir = "C:/Users/gurrs/Documents/6_Github_repositories/GurrLab/SeaWater-Yaquina/RAnalysis") # Sam's
+#knitr::opts_knit$set(root.dir = "C:/Users/samuel.gurr/Documents/Github_repositories/EAD-ASEB-Airradians_Popgen_OA/") # Sam's
+```
+
+
+# Objective: 
+
+  * load events data 
+  
+  * call function to generate figures based on year, data type, threshold/descriptor
+  
+  * use this Rmd as the foundation for developing a RShiny script 
+  
+```{r}
+library(lubridate)
+library(dplyr)
+```
+
+### Import data 
+
+  * data being the outputs from the acidifcation, hypoxia, low salinity, high temperature events R code
+
+```{r import data}
+Yaquina_HypoxiaEvents      <- read.csv("Output/Yaquina_2009_2025/Yaquina_Bay_HypoxiaEvents.csv",sep=',', head = T) %>%   
+                                    dplyr::mutate(parameter = 'DO') %>% rename(magnitude = eventDO)
+Yaquina_pHEvents           <- read.csv("Output/Yaquina_2009_2025/Yaquina_Bay_pHEvents.csv",sep=',', head = T) %>% 
+                                    dplyr::mutate(parameter = 'pH') %>% rename(magnitude = eventpH)
+Yaquina_TemperatureEvents  <- read.csv("Output/Yaquina_2009_2025/Yaquina_Bay_TemperatureEvents.csv",sep=',', head = T) %>% 
+                                    dplyr::mutate(parameter = 'temperature') %>% rename(magnitude = eventTemperature)
+Yaquina_SalinityEvents     <- read.csv("Output/Yaquina_2009_2025/Yaquina_Bay_SalinityEvents.csv",sep=',', head = T) %>% 
+                                    dplyr::mutate(parameter = 'salinity') %>% rename(magnitude = eventSalinity)
+
+
+Yaquina_all <- rbind(Yaquina_HypoxiaEvents,
+                     Yaquina_pHEvents,
+                     Yaquina_TemperatureEvents,
+                     Yaquina_SalinityEvents) %>% 
+              dplyr::rename(category = type) %>% 
+              dplyr::mutate(month = lubridate::month(startTime),
+                            year = lubridate::year(startTime))
+
+
+# Example: compute means by month and categories
+df_summ <- Yaquina_Av_all %>%
+  dplyr::filter(year %in% 2019 & parameter == 'temperature') %>% 
+  # dplyr::filter(year %in% 2014) %>% 
+  # dplyr::filter(parameter == 'temperature') %>% 
+  group_by(parameter, year, frequency, month_factor, bar.width, bar.alpha, category) %>%
+  summarise(magnitude_mean = mean(magnitude_mean, na.rm = TRUE), .groups = "drop")
+
+library(ggplot2)
+ggplot2::ggplot(df_summ,
+       aes(x = month_factor,
+           y = frequency,
+           width = bar.width/6,   # thickness by factor
+           alpha = as.factor(category))) +  # transparency by factor
+  scale_x_discrete(drop = FALSE) + # This ensures all months are displayed
+  scale_alpha_discrete(range = c(0.3, 1)) +  # adjust as needed
+  geom_bar(
+    stat = "identity", 
+    position = position_dodge(width = 0.8), # Dodge width
+    width = 0.7 # Bar width
+  ) +
+  # scale_width_identity() + # Use the actual values in bar_widths
+  # scale_alpha_identity() + # Use the actual values in bar_alphas
+  # coord_cartesian(ylim = c(7.2, 8))  +
+  theme_bw() + 
+  coord_flip() + 
+  facet_wrap(~year)
+
+
+```
+
+
+```{r merge to master with diagnostic columns}
+Yaquina_all <- rbind(Yaquina_HypoxiaEvents,
+                     Yaquina_pHEvents,
+                     Yaquina_TemperatureEvents,
+                     Yaquina_SalinityEvents) %>% 
+              dplyr::rename(category = type) %>% 
+              dplyr::mutate(month = lubridate::month(startTime),
+                            year = lubridate::year(startTime))
+```
+
+
+```{r Monthly Average}
+
+Yaquina_Av_duration  <- Rmisc::summarySE(Yaquina_all,measurevar =  'durationMinutes', groupvars =  c('parameter','year','month','category'))%>% 
+                          dplyr::rename(frequency = N, duration_mean = durationMinutes, duration_se = se) %>% 
+                          dplyr::select(year, month, parameter, category, frequency, duration_mean, duration_se)
+Yaquina_Av_magnitude <- Rmisc::summarySE(Yaquina_all,measurevar =  'magnitude', groupvars =  c('parameter','year','month','category')) %>% 
+                          dplyr::rename(frequency = N, magnitude_mean = magnitude, magnitude_se = se) %>% 
+                          dplyr::select(year, month, parameter, category, frequency, magnitude_mean, magnitude_se)
+
+
+Yaquina_Av_all <- merge(Yaquina_Av_duration, Yaquina_Av_magnitude) %>% 
+  
+                        dplyr::mutate(month_factor = factor(month,levels = 1:12,labels = month.abb)) %>% 
+  
+                        dplyr::mutate(bar.width = case_when(duration_mean <= 120 ~ 1, # '<2 hours',
+                                                            (duration_mean > 120 & duration_mean < 300 ) ~ 2, # '2-5 hours',
+                                                            duration_mean >= 300 ~  3 )) %>%  #'>5 hours' %>% 
+
+                        dplyr::mutate(bar.alpha = case_when(frequency == 1 ~ 1, #'single event',
+                                                           (frequency > 1 & frequency <= 10) ~ 2, #'2-10 events',
+                                                            frequency >= 10 ~ 3 )) %>% #'>10 events'
+                        
+                        dplyr::mutate(EQ = (frequency*duration_mean)/magnitude_mean)
+
+
+Yaquina_Av_all$category <- forcats::fct_relevel(Yaquina_Av_all$category, "Marginal", "Sub-Optimal",  "Moderate", "Severe")
+Yaquina_Av_all$category <- forcats::fct_relevel(Yaquina_Av_all$category, "Sub-Optimal", "Marginal", "Moderate", "Severe")
+
+```
+
+```{r GenerateFigures function}
+
+
+
+ggplot(
+  (Yaquina_Av_all %>% dplyr::filter(parameter == 'salinity')), 
+      
+      aes(x = month_factor, y = factor(year), fill = EQ)) +
+  geom_tile(color = "grey", linewidth = 0.4) + # Adds a white border to tiles
+  facet_grid(category ~ .) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") + # Custom color scale
+  scale_x_discrete(drop = FALSE) + # This ensures all months are displayed
+  labs(
+    title = "Heatmap of Values by Month and Year",
+    x = "Month",
+    y = "Year",
+    fill = "Value"
+  ) +
+  theme_classic() +
+  coord_flip() + 
+  # Rotate x-axis labels for readability
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+
+```
+
+```{r Run GenerateFigures}
+
+```
+
+
+
+```{r import data}
+
+```
+
+```{r import data}
+
+```
+
+```{r import data}
+
+```
+
+```{r import data}
+
+```
+
+```{r import data}
+
+```
+
+```{r import data}
+
+```
+
