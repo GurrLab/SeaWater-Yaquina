@@ -9,7 +9,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 # SET WORKING DIRECTORY 
-knitr::opts_knit$set(root.dir = "C:/Users/gurrs/Documents/6_Github_repositories/GurrLab/SeaWater-Yaquina/RAnalysis") # Sam's
+knitr::opts_knit$set(root.dir = "C:/Users/gurrs/Documents/6_Github_repositories/GurrLab/SeaWater-Yaquina/RAnalysis/Output/") # Sam's
 #knitr::opts_knit$set(root.dir = "C:/Users/samuel.gurr/Documents/Github_repositories/EAD-ASEB-Airradians_Popgen_OA/") # Sam's
 ```
 
@@ -22,12 +22,167 @@ knitr::opts_knit$set(root.dir = "C:/Users/gurrs/Documents/6_Github_repositories/
   
   * use this Rmd as the foundation for developing a RShiny script 
   
-```{r}
-library(lubridate)
+```{r load packages}
+
 library(dplyr)
+library(lubridate)
+library(ggplot2)
 ```
 
 ### Import data 
+
+
+  * load the master (zipped) file created in 1_BuildMaster.Rmd
+    NOTE: do not unzip and store in the repo, it is too large to push to github. Use the syntax below to unzip in R
+
+```{r import data}
+
+# Yaquina data from 1988 - 2025
+Yaquina_1988_2025   <- read.csv("C:/Users/gurrs/Documents/6_Github_repositories/GurrLab/SeaWater-Yaquina/RAnalysis/Output/Compiled_master_file_csv.gz")
+
+```
+
+### Create a visual BES intern
+
+* K. Dammann requested May - August 2009 DO to capture hypoxic events 
+
+```{r K. Damman COMES 2026 poster}
+
+# 3. Format the object into a string using GMT/UTC and the HH:MM:SS layout
+Yaquina_1988_2025 <- Yaquina_1988_2025 %>% 
+                       dplyr::mutate(datetime_gmt = as.POSIXct(Date_GMT, tz = "GMT"),
+                                     Date_GMT     = lubridate::ymd_hms(Date_GMT, tz = "GMT"))
+View(Yaquina_1988_2025)
+
+Yaquina_2019               <- Yaquina_1988_2025 %>% dplyr::filter(substr(datetime_gmt,1,4) %in% "2019") # filter for year 2009
+
+Yaquina_2019_May_to_August <- Yaquina_2019 %>% dplyr::filter(datetime_gmt > "2019-05-15",
+                                                             datetime_gmt < "2019-09-15" ) # filter for year 2009
+
+Yaquina_2019_May_to_August$date <- as.Date(Yaquina_2019_May_to_August$Date_GMT)
+
+
+
+# filter dataset, thre are 2 overlapping sensors in 2009! 
+unique(Yaquina_2019_May_to_August$dataset) # view the two datasets
+Yaquina_2019_May_to_August_Dataset2 <- Yaquina_2019_May_to_August%>% dplyr::filter(dataset %in% 'Dataset2_2007_2013')
+Yaquina_2019_May_to_August_CMS      <- Yaquina_2019_May_to_August%>% dplyr::filter(dataset %in% 'Dataset3_2009_2025')
+
+
+# Set your line threshold
+threshold_1 <- 5
+threshold_2 <- 4
+
+long <- ggplot(data = Yaquina_2019_May_to_August_CMS, # for the data in Yaquina_2009_May_to_August_CMS, plot thefollowing
+               aes(Date_GMT, Dissolved_oxygen_mgL)) + # x being date and y as mg/L D
+                # geom_point(aes(y = Dissolved_oxygen_mgL), fill = "white", size = 0.5) + # provide points for each
+                geom_line(aes(y = Dissolved_oxygen_mgL), color = "black", size = 0.5) +# connect with line
+                # 2. Secondary axis line (Data rescaled DOWN to fit primary scale)
+                geom_line(aes(y = Depth_m), color = "grey", size = 0.5) +       
+                theme_classic()  +
+                geom_rect(
+                aes(xmin = as.Date("2019-07-15"), xmax = as.Date("2019-08-03"), 
+                    ymin = 0.5, ymax = Inf),
+                fill = NA, alpha = 0.2, color = "darkblue", linetype = "dashed"
+                          ) +
+                labs(title = NULL, x = NULL, y = NULL) +   
+                scale_y_continuous(
+                  limits = c(0, 12),          # Sets minimum and maximum y-values
+                  breaks = seq(0, 12, by = 2)) # Sets tick marks every 5 units
+
+
+
+
+med <- ggplot(data =  # lets dig deeper into a shorter timeseries in mid July to late August
+                      (Yaquina_2019_May_to_August_CMS %>% dplyr::filter(datetime_gmt > "2019-07-15",
+                                                                     datetime_gmt < "2019-08-31")), # called a uniq dataset
+               aes(Date_GMT, Dissolved_oxygen_mgL)) + # x being date and y as mg/L D
+                # geom_point(aes(y = Dissolved_oxygen_mgL), fill = "white", size = 0.5) + # provide points for each
+                geom_line(aes(y = Dissolved_oxygen_mgL), color = "black", size = 0.5) +# connect with line
+                # geom_point(aes(y = Dissolved_oxygen_mgL), color = "grey", size = 0.5) + # provide points for each
+                geom_line(aes(y = Depth_m), color = "grey", size = 0.5) +     
+                # Add the baseline horizontal line
+                geom_hline(yintercept = threshold_1, linetype = "dashed", color = "darkorange", size = 0.5) +
+                                # pmin takes the lowest value between the y-data and threshold so it only shades the dips
+                # geom_ribbon(aes(ymin = pmin(Dissolved_oxygen_mgL, threshold_1), ymax = threshold_1), 
+                #             fill = "darkorange", alpha = 0.4) +
+                  # Add the baseline horizontal line
+                geom_hline(yintercept = threshold_2, linetype = "dashed", color = "orange1", size = 0.5) +
+                                # pmin takes the lowest value between the y-data and threshold so it only shades the dips
+                # geom_ribbon(aes(ymin = pmin(Dissolved_oxygen_mgL, threshold_2), ymax = threshold_2), 
+                #             fill = "orange1", alpha = 0.4) +
+                theme_classic() +
+                geom_rect(
+                aes(xmin = as.Date("2019-07-20"), xmax = as.Date("2019-07-30"), 
+                    ymin = 0.5, ymax = Inf),
+                fill = NA, alpha = 0.2, color = "darkblue", linetype = "dashed"
+                          ) +
+                labs(title = NULL, x = NULL, y = NULL) +  
+                scale_y_continuous(
+                  limits = c(0, 12),          # Sets minimum and maximum y-values
+                  breaks = seq(0, 12, by = 2))  # Sets tick marks every 5 units
+
+
+
+
+
+short <- ggplot(data =  # lets dig deeper into a shorter timeseries in mid July to late August
+                      (Yaquina_2019_May_to_August_CMS %>% dplyr::filter(datetime_gmt > "2019-07-20",
+                                                                     datetime_gmt < "2019-07-30")), # called a uniq dataset
+               aes(Date_GMT, Dissolved_oxygen_mgL)) + # x being date and y as mg/L D
+                # geom_point(aes(y = Dissolved_oxygen_mgL), fill = "white", size = 0.5) + # provide points for each
+                geom_line(aes(y = Dissolved_oxygen_mgL), color = "black", size = 0.5) +# connect with line
+                # 2. Secondary axis line (Data rescaled DOWN to fit primary scale)
+                geom_line(aes(y = Depth_m), color = "grey", size = 0.5) +     
+                # Add the baseline horizontal line
+                geom_hline(yintercept = threshold_1, linetype = "dashed", color = "darkorange", size = 0.5) +
+                                # pmin takes the lowest value between the y-data and threshold so it only shades the dips
+                geom_ribbon(aes(ymin = pmin(Dissolved_oxygen_mgL, threshold_1), ymax = threshold_1), 
+                            fill = "darkorange", alpha = 0.4) +
+                  # Add the baseline horizontal line
+                geom_hline(yintercept = threshold_2, linetype = "dashed", color = "orange1", size = 0.5) +
+                                # pmin takes the lowest value between the y-data and threshold so it only shades the dips
+                geom_ribbon(aes(ymin = pmin(Dissolved_oxygen_mgL, threshold_2), ymax = threshold_2), 
+                            fill = "orange1", alpha = 0.4) +
+                theme_classic() +
+                labs(title = NULL, x = NULL, y = NULL) +   
+                scale_y_continuous(
+                  limits = c(0, 12),          # Sets minimum and maximum y-values
+                  breaks = seq(0, 12, by = 2))  # Sets tick marks every 5 units
+
+
+combine_figures <- ggpubr::ggarrange(long,
+                                    (ggpubr::ggarrange(med,short,nrow=1)),
+                                    nrow=2)
+
+
+# Insert your title, x-axis label, and y-axis label
+
+
+# 2. Make your head and subhead (rot = 90 makes it vertical like a y-axis)
+head_text <- ggpubr::text_grob("Dissolved oxygen (mg / L)", size = 12, rot = 90)
+sub_text <- ggpubr::text_grob("Sensor depth (m)", size = 12, rot = 90, color = "grey")
+
+# 3. Combine them vertically using ggarrange
+combined_label <- ggpubr::ggarrange(
+                                    head_text, 
+                                    sub_text, 
+                                    ncol = 2
+                                  )
+
+
+
+
+Yaquina_hypoxia_2019 <- ggpubr::annotate_figure(combine_figures,
+                              top = ggpubr::text_grob("2019 Hypoxia in Yaquina Bay", face = "bold", size = 12),
+                              bottom = ggpubr::text_grob("Date", size = 12),
+                              left = combined_label)
+
+
+pdf("C:/Users/gurrs/Documents/6_Github_repositories/GurrLab/SeaWater-Yaquina/RAnalysis/Output/2019_Hypoxic_events.pdf", height = 6, width = 8)
+Yaquina_hypoxia_2019
+dev.off()
+```
 
   * data being the outputs from the acidifcation, hypoxia, low salinity, high temperature events R code
 
