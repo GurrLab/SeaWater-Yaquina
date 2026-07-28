@@ -4,11 +4,13 @@ library(gridlayout) # devtools::install_github("rstudio/gridlayout")
 library(bslib) # install.packages("bslib")
 library(DT) # install.packages("DT")
 library(ggplot2)
+library(lubridate)
 
 ui <- grid_page(
   layout = c(
     "header  header   header  ",
-    "sidebar bluePlot bluePlot",
+    "sidebar bl
+    uePlot bluePlot",
     "table   table    plotly  ",
     "table   table    plotly  "
   ),
@@ -200,8 +202,8 @@ server <- function(input, output) {
                         d_obj_start <- lubridate::ymd(input$startDate)
                         d_obj_end   <- lubridate::ymd(input$endDate)
                         # 3. Add or subtract days directly
-                        past_date   <- ymd(d_obj_start) - days(days_between_birth)
-                        future_date <- ymd(d_obj_end) + days(days_between_birth)
+                        past_date   <- lubridate::ymd(d_obj_start) - days(days_between_birth)
+                        future_date <- lubridate::ymd(d_obj_end) + days(days_between_birth)
                         
                         data.frame(
                           raw_data_formatted %>% 
