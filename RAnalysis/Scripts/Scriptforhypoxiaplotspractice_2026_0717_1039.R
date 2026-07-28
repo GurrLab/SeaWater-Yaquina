@@ -1,0 +1,5 @@
+setwd("C:/Users/Katie/Documents/BES_Internship/Seawater-Yaquina/RAnalysis/Output")
+getwd()
+list.files()
+Compiled_master_file <- read.csv("Compiled_master_file.csv")
+library(tidyverse)
