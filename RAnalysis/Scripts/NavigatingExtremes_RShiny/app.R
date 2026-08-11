@@ -9,8 +9,7 @@ library(lubridate)
 ui <- grid_page(
   layout = c(
     "header  header   header  ",
-    "sidebar bl
-    uePlot bluePlot",
+    "sidebar bluePlot bluePlot",
     "table   table    plotly  ",
     "table   table    plotly  "
   ),
